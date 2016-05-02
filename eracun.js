@@ -196,26 +196,94 @@ var vrniRacune = function(callback) {
 }
 
 // Registracija novega uporabnika
+/* izvede, ce streznik dobi POST za /prijava URI - callback ima v zahtevi
+   podatke, ki jih je poslal odjemalec, odgovor je odgovor streznika ki ga
+   trenutno tvorimo in ga posljemo nazaj odjemalcu */
 streznik.post('/prijava', function(zahteva, odgovor) {
   var form = new formidable.IncomingForm();
   
+  /* dobljeno formo (ki se nahaja zahtevi, ki jo je odjemalec poslal nazaj)
+     interpretiramo s .parse() - ta ima za parametra napaka1 (to je error
+     objekt, ki ga parse vrne ce ni mogel razstaviti podatkov), polja
+     (ang. set - key-value mnozica vseh polj poslane forme), datoteke
+     (mnozica datotek, ki jo je odjemalec poslal) */
   form.parse(zahteva, function (napaka1, polja, datoteke) {
+    
     var napaka2 = false;
-    try {
-      var stmt = pb.prepare("\
-        INSERT INTO Customer \
-    	  (FirstName, LastName, Company, \
-    	  Address, City, State, Country, PostalCode, \
-    	  Phone, Fax, Email, SupportRepId) \
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
-      //TODO: add fields and finalize
-      //stmt.run("", "", "", "", "", "", "", "", "", "", "", 3); 
-      //stmt.finalize();
-    } catch (err) {
-      napaka2 = true;
+    /* DODATEK: ker se meni osebno nesmiselno, da se dovolujejo prazni vnosi,
+       (vsaj za ime priimek, naslov, mesto, drzava, postna stevilka, e-posta), bom
+       naredil preverjanje za te + dodal bom vsebino v stran, ki
+       nakazuje, da so ta polja obvezna */
+    /* tu gre sicer za zelo kmecki nacin preverjanja, je pa bolj kot nic */
+    if(polja.FirstName.length>0 &&
+       polja.LastName.length>0 &&
+       polja.Address.length>0 &&
+       polja.City.length>0 &&
+       polja.Country.length>0 &&
+       polja.PostalCode.length>0 &&
+       polja.Email.length>0)
+    {
+      try {
+        var stmt = pb.prepare("\
+          INSERT INTO Customer \
+      	  (FirstName, LastName, Company, \
+      	  Address, City, State, Country, PostalCode, \
+      	  Phone, Fax, Email, SupportRepId) \
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
+        /* prepare stavek naredi SQL stavek, ki ga pozenemo s parametri - kjer
+           se v stavku pojavi vprasaj, se ta zamenja s naslednjim zaporednim
+           parametrom v .run funkciji */
+        
+        /* kljuc podatka je enak name atributu v formi
+           3 se nanasa na id od Jane Peacock */
+        stmt.run(polja.FirstName, polja.LastName, polja.Company, polja.Address, 
+                 polja.City, polja.State, polja.Country, polja.PostalCode, 
+                 polja.Phone, polja.Fax, polja.Email, 3); 
+        stmt.finalize();
+      } catch (err) {
+        napaka2 = true;
+      }
     }
-  
-    odgovor.end();
+    else
+      napaka2=true; /* vnosi manjkajo, zato vrzemo napako namesto da bi dodajali
+                       pomankljive podatke v bazo */
+    
+    /* ponovno prikazemo stran s statusom */
+    vrniStranke(function(napakaStranke, stranke) {
+        vrniRacune(function(napakaRacuni, racuni) {
+          /* ejs uporablja { } za podatkovni blok - neinicializirane spremenljivke
+             ne prispeva k izpisu. */
+          
+          /* napaka1 je error objekt ki praviloma mora biti null, napaka2 je
+             napaka, ki jo vrne ta callback, in je boolean vrednost
+             (true ce je prislo do napake), napakaStranke ter napakaRacuni
+             so prav tako error objekti, ki jih vrne sqlite3 objekt */
+          //console.log("dobljeni statusi :"+napaka1+" "+napaka2+" "+napakaStranke+" "+napakaRacuni);
+          if(napaka1 == null && napaka2 == false && napakaStranke == null && napakaRacuni == null)
+            odgovor.render('prijava',
+              {
+                sporocilo: "Stranka je bila uspešno registrirana.",
+                seznamStrank: stranke,
+                seznamRacunov: racuni,
+                zadnjiVnos: {}
+              });
+          else
+             odgovor.render('prijava',
+              {
+                sporocilo: "Prišlo je do napake pri registraciji nove stranke. Prosim preverite vnešene podatke in poskusite znova.",
+                seznamStrank: stranke, seznamRacunov: racuni,
+                /* v primeru napake ohranimo vsebino opisnih polj, da jih lahko uporabnik
+                   popravi */
+                zadnjiVnos: polja
+              });
+          
+           
+        }) 
+      });
+    /* express funkcija .end se uporablja le v primeru, ko v odgovoru ne
+       posiljamo podatkov (posljemo le HTTP header) - zgoraj uporabljena .render
+       funkcija ze poslje nazaj odgovor */
+    //odgovor.end();
   });
 })
 
@@ -223,7 +291,7 @@ streznik.post('/prijava', function(zahteva, odgovor) {
 streznik.get('/prijava', function(zahteva, odgovor) {
   vrniStranke(function(napaka1, stranke) {
       vrniRacune(function(napaka2, racuni) {
-        odgovor.render('prijava', {sporocilo: "", seznamStrank: stranke, seznamRacunov: racuni});  
+        odgovor.render('prijava', {sporocilo: "", seznamStrank: stranke, seznamRacunov: racuni, zadnjiVnos: {}});  
       }) 
     });
 })
