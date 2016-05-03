@@ -11,6 +11,20 @@ var pb = new sqlite3.Database('chinook.sl3');
 
 // Priprava strežnika
 var express = require('express');
+/* express na strezniski strani poskrbi za celotno hranjenje seje -
+   mi moramo vedeti, da ko mi v .get / .post funkcijo dobimo zahtevo ter
+   podamo odgovor je nivo nizje se express-session nivo, ki skrbi za pravi
+   kontekst.
+   Ta namrec ob prvi povezavi
+   novega odjemalca ustvari sejo in ji poda identifikator - tega poda
+   nazaj odjemalcu v obliki piskotka in ob vsaki naslednji povezavi
+   odjemalec ta isti piskotek poda strezniku, da ga ta lahko ta ponovno
+   poveze z njegovo sejo (HTML sam po sebi je namrec stateless, zato pa imamo
+   piskote).
+   
+   Vsi podatki se hranijo na strani streznika - objekt, ki pripada
+   trenutni seji, se lahko pridobi preko zahteva.session
+*/
 var expressSession = require('express-session');
 var streznik = express();
 streznik.set('view engine', 'ejs');
@@ -47,27 +61,36 @@ function davcnaStopnja(izvajalec, zanr) {
 
 // Prikaz seznama pesmi na strani
 streznik.get('/', function(zahteva, odgovor) {
-  pb.all("SELECT Track.TrackId AS id, Track.Name AS pesem, \
-          Artist.Name AS izvajalec, Track.UnitPrice * " +
-          razmerje_usd_eur + " AS cena, \
-          COUNT(InvoiceLine.InvoiceId) AS steviloProdaj, \
-          Genre.Name AS zanr \
-          FROM Track, Album, Artist, InvoiceLine, Genre \
-          WHERE Track.AlbumId = Album.AlbumId AND \
-          Artist.ArtistId = Album.ArtistId AND \
-          InvoiceLine.TrackId = Track.TrackId AND \
-          Track.GenreId = Genre.GenreId \
-          GROUP BY Track.TrackId \
-          ORDER BY steviloProdaj DESC, pesem ASC \
-          LIMIT 100", function(napaka, vrstice) {
-    if (napaka)
-      odgovor.sendStatus(500);
-    else {
-        for (var i=0; i<vrstice.length; i++)
-          vrstice[i].stopnja = davcnaStopnja(vrstice[i].izvajalec, vrstice[i].zanr);
-        odgovor.render('seznam', {seznamPesmi: vrstice});
-      }
-  })
+  /* mi bomo znotraj trenutne seje hranili se identifikator uporabnika
+     (primarni kljuc, ki se uporabi znotraj podatkovne baze), da bomo kosarico
+     seje povezali z uporabnikom.
+     - ce ta se ni dolocen, preusmerimo na prijavo */
+  if(!zahteva.session.uporabnik)
+    odgovor.redirect('/prijava');
+  else
+  {
+    pb.all("SELECT Track.TrackId AS id, Track.Name AS pesem, \
+            Artist.Name AS izvajalec, Track.UnitPrice * " +
+            razmerje_usd_eur + " AS cena, \
+            COUNT(InvoiceLine.InvoiceId) AS steviloProdaj, \
+            Genre.Name AS zanr \
+            FROM Track, Album, Artist, InvoiceLine, Genre \
+            WHERE Track.AlbumId = Album.AlbumId AND \
+            Artist.ArtistId = Album.ArtistId AND \
+            InvoiceLine.TrackId = Track.TrackId AND \
+            Track.GenreId = Genre.GenreId \
+            GROUP BY Track.TrackId \
+            ORDER BY steviloProdaj DESC, pesem ASC \
+            LIMIT 100", function(napaka, vrstice) {
+      if (napaka)
+        odgovor.sendStatus(500);
+      else {
+          for (var i=0; i<vrstice.length; i++)
+            vrstice[i].stopnja = davcnaStopnja(vrstice[i].izvajalec, vrstice[i].zanr);
+          odgovor.render('seznam', {seznamPesmi: vrstice});
+        }
+    })
+  }
 })
 
 // Dodajanje oz. brisanje pesmi iz košarice
@@ -301,12 +324,32 @@ streznik.post('/stranka', function(zahteva, odgovor) {
   var form = new formidable.IncomingForm();
   
   form.parse(zahteva, function (napaka1, polja, datoteke) {
+    /* glede na prijava.ejs, vrstica 66:
+       <option value="<%= stranka.CustomerId %>" selected>
+       
+       v tej tocki pridobimo identifikator uporabnika v bazi - to si shranimo
+       v sejo, nato pa preusmerimo uporabnika na glavno stran (ki ima sedaj
+       znanega lastnika kosarice)
+       
+       Ime izbirnega okna je seznamStrank, in to je tudi kljuc za izbrano
+       vrednost.
+       */
+    zahteva.session.uporabnik = polja.seznamStrank;
+    
     odgovor.redirect('/')
   });
 })
 
 // Odjava stranke
 streznik.post('/odjava', function(zahteva, odgovor) {
+  /* mi ob odjavi pozabimo na uporabnika ter na vsebino njegove kosarice s tem
+     da unicimo objekt seje -
+     meni osebno sicer ni popolnoma jasno, kdaj naj bi mi sicer zapisali
+     vsebino kosarice z bazo, mogoce takrat, ko pritisnemo gumb za izpis
+     racuna? - je pa nekoliko nerodno da niso podali SQL stavka za to, ker
+     v tem primeru je potrebno dodati nove vrstice v Invoice ter InvoiceLine */
+    zahteva.session.destroy();
+    
     odgovor.redirect('/prijava') 
 })
 
