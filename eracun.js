@@ -153,6 +153,12 @@ streznik.post('/izpisiRacunBaza', function(zahteva, odgovor) {
      ter podrobne podatke stranke, nato pa izvedemo render racuna */
   var form = new formidable.IncomingForm();
   
+  /* po dokaj bolecem razhroscevanju sem ugotovil, da mi lahko
+     podatkiStranke.constructor.name
+     pove, da je tip objekta dejansko Array, ki v prvem indeksu nosi
+     Set! - to je zato, ker lahko sqlite .all funkcija vrne vec vrstic,
+     pri cemer so te v tabeli, posamezni stolpci vrstice pa so dostopni
+     kot mnozica */
   form.parse(zahteva,
     function (napakaParse, polja, datoteke)
     {
@@ -161,9 +167,21 @@ streznik.post('/izpisiRacunBaza', function(zahteva, odgovor) {
         {
           pesmiIzRacuna(polja.seznamRacunov,
             function(napakaPesmi, pesmi){
-              console.log(stranka);
-              console.log(pesmi);
-              odgovor.end();
+              /* izlocimo objekt iz dobljene vrstice - pri tem seveda
+                 predpostavimo, da bo v bazi obstajala le ena stranka z
+                 danim identifikatorjem (s tem bo posledicno prva vrnjena
+                 vrstica morala biti prava) */
+              stranka = stranka[0];
+              
+              //console.log(stranka);
+              //console.log(pesmi);
+              odgovor.setHeader('content-type', 'text/xml');
+              odgovor.render('eslog', {
+                vizualiziraj: true, /* true oznacue HTML render */
+                postavkeRacuna: pesmi,
+                podatkiStranke: stranka
+              })
+              //odgovor.end();
             });
         });
     });
