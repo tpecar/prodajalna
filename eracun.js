@@ -170,6 +170,16 @@ var strankaIzRacuna = function(racunId, callback) {
     })
 }
 
+// Vrni podrobnosti o stranki s podanim identifikatorjem (ki si ga praviloma
+// hranimo znotraj seje)
+var strankaIzId = function(strankaId, callback) {
+    pb.all("SELECT Customer.* FROM Customer \
+            WHERE Customer.CustomerId = " + strankaId,
+    function(napaka, vrstice) {
+      callback(napaka, vrstice);
+    })
+}
+
 // Izpis računa v HTML predstavitvi na podlagi podatkov iz baze
 streznik.post('/izpisiRacunBaza', function(zahteva, odgovor) {
   /* pridobimo stranko, ki pripada racunu, na podlagi tega pesmi iz racuna
@@ -188,13 +198,14 @@ streznik.post('/izpisiRacunBaza', function(zahteva, odgovor) {
       strankaIzRacuna(polja.seznamRacunov,
         function(napakaStranka, stranka)
         {
+          /* izlocimo objekt iz dobljene vrstice - pri tem seveda
+             predpostavimo, da bo v bazi obstajala le ena stranka z
+             danim identifikatorjem (s tem bo posledicno prva vrnjena
+             vrstica morala biti prava) */
+          stranka = stranka[0];
+          
           pesmiIzRacuna(polja.seznamRacunov,
             function(napakaPesmi, pesmi){
-              /* izlocimo objekt iz dobljene vrstice - pri tem seveda
-                 predpostavimo, da bo v bazi obstajala le ena stranka z
-                 danim identifikatorjem (s tem bo posledicno prva vrnjena
-                 vrstica morala biti prava) */
-              stranka = stranka[0];
               
               //console.log(stranka);
               //console.log(pesmi);
@@ -212,20 +223,35 @@ streznik.post('/izpisiRacunBaza', function(zahteva, odgovor) {
 
 // Izpis računa v HTML predstavitvi ali izvorni XML obliki
 streznik.get('/izpisiRacun/:oblika', function(zahteva, odgovor) {
-  pesmiIzKosarice(zahteva, function(pesmi) {
-    if (!pesmi) {
-      odgovor.sendStatus(500);
-    } else if (pesmi.length == 0) {
-      odgovor.send("<p>V košarici nimate nobene pesmi, \
-        zato računa ni mogoče pripraviti!</p>");
-    } else {
-      odgovor.setHeader('content-type', 'text/xml');
-      odgovor.render('eslog', {
-        vizualiziraj: zahteva.params.oblika == 'html' ? true : false,
-        postavkeRacuna: pesmi
-      })  
-    }
-  })
+  /* iz seje uporabnika pridobimo njegov identifikator v bazi - tega nam
+     je on posredoval ob izbiri racuna na strani /prijava
+     (prijava se izvede v streznik.post('/prijava')).
+     
+     Prav tako se zaradi redirekcije ob neprijavljenem uporabniku nam ni treba
+     bati, da bi generiral racun brez veljavnega identifikatorja uporabnika */
+  strankaIzId(zahteva.session.uporabnik,
+    function(napakaStranka, stranka)
+    {
+      /* iz dobljene verstice (predpostavimo da je prva dobljena ok) dobimo
+         mnozico */
+      stranka = stranka[0];
+      
+      pesmiIzKosarice(zahteva, function(pesmi) {
+        if (!pesmi) {
+          odgovor.sendStatus(500);
+        } else if (pesmi.length == 0) {
+          odgovor.send("<p>V košarici nimate nobene pesmi, \
+            zato računa ni mogoče pripraviti!</p>");
+        } else {
+          odgovor.setHeader('content-type', 'text/xml');
+          odgovor.render('eslog', {
+            vizualiziraj: zahteva.params.oblika == 'html' ? true : false,
+            postavkeRacuna: pesmi,
+            podatkiStranke: stranka
+          })  
+        }
+      })
+    })
 })
 
 // Privzeto izpiši račun v HTML obliki
